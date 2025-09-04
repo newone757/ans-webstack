@@ -1,0 +1,95 @@
+server {
+    listen 80;
+    server_name {{ traefik_domain | default('localhost') }} {{ vault_domains.primary | default('_') }};
+    root /usr/share/nginx/html;
+    index index.html index.htm;
+
+    # Security configurations
+{% if security.rate_limiting.enabled | default(false) | bool %}
+    # Rate limiting
+    limit_req zone=general burst={{ security.rate_limiting.burst }} nodelay;
+{% endif %}
+
+    # Custom error pages
+    error_page 404 /404.html;
+    error_page 500 502 503 504 /50x.html;
+
+    # Main location block
+    location / {
+        try_files $uri $uri/ =404;
+        
+        # Additional security headers for this location
+{% if header_mode == 'nginx' %}
+        add_header X-Served-By "nginx" always;
+        add_header X-Cache-Status "MISS" always;
+{% elif header_mode == 'custom' %}
+        # Stealth headers to mimic other servers
+        add_header X-AspNet-Version "4.0.30319" always;
+        add_header X-AspNetMvc-Version "5.2" always;
+{% endif %}
+    }
+
+    # Security hardening
+    location ~* \.(txt|log|md)$ {
+        deny all;
+    }
+
+    location ~ /\. {
+        deny all;
+    }
+
+    # Static file caching
+    location ~* \.(jpg|jpeg|png|gif|ico|css|js|woff|woff2|ttf|svg)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+
+    # API endpoint simulation (for testing)
+    location /api/ {
+{% if security.rate_limiting.enabled | default(false) | bool %}
+        limit_req zone=api burst=5 nodelay;
+{% endif %}
+        
+        # Return JSON response with custom headers
+        add_header Content-Type application/json always;
+{% if header_mode == 'custom' %}
+        add_header X-API-Version "v2.1" always;
+        add_header X-Response-Time "45ms" always;
+{% endif %}
+        
+        return 200 '{"status": "ok", "message": "API endpoint responding", "server": "nginx"}';
+    }
+
+    # Health check endpoint
+    location /health {
+        access_log off;
+        add_header Content-Type text/plain always;
+        return 200 "OK";
+    }
+
+    # Status endpoint with server info
+    location /status {
+        add_header Content-Type application/json always;
+{% if header_mode == 'nginx' %}
+        return 200 '{"server": "nginx/1.25.0", "status": "running", "uptime": "available"}';
+{% elif header_mode == 'custom' %}
+        return 200 '{"server": "{{ header_configurations.custom.custom_headers.Server | default("Apache/2.4.41") }}", "status": "running", "framework": "{{ header_configurations.custom.custom_headers["X-Framework"] | default("Unknown") }}"}';
+{% else %}
+        return 200 '{"server": "web-server", "status": "running"}';
+{% endif %}
+    }
+
+    # Robots.txt
+    location = /robots.txt {
+        add_header Content-Type text/plain always;
+        return 200 "User-agent: *\nDisallow: /admin/\nDisallow: /api/\nAllow: /\n\nSitemap: http://{{ traefik_domain | default('localhost') }}/sitemap.xml";
+    }
+
+    # Favicon
+    location = /favicon.ico {
+        access_log off;
+        log_not_found off;
+        expires 1y;
+    }
+}
