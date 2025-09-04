@@ -44,4 +44,70 @@ http:
 {% for header_name, header_value in header_configurations.custom.custom_headers.items() %}
           {{ header_name }}: "{{ header_value }}"
 {% endfor %}
-{% if header_configurations.custom.hide_tra
+{% if header_configurations.custom.hide_traefik_headers %}
+        customRequestHeaders:
+          X-Forwarded-Proto: ""
+          X-Forwarded-For: ""
+          X-Real-Ip: ""
+          X-Forwarded-Host: ""
+{% endif %}
+{% endif %}
+
+{% if security.rate_limiting.enabled | default(false) | bool %}
+    # Rate limiting middleware
+    ratelimit:
+      rateLimit:
+        burst: {{ security.rate_limiting.burst }}
+        average: {{ security.rate_limiting.requests_per_second }}
+        period: "1s"
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+{% endif %}
+
+{% if security.ip_whitelist | length > 0 %}
+    # IP whitelist middleware
+    ip-whitelist:
+      ipWhiteList:
+        sourceRange:
+{% for ip in security.ip_whitelist %}
+          - "{{ ip }}"
+{% endfor %}
+{% endif %}
+
+{% if security.ip_blacklist | length > 0 %}
+    # IP blacklist middleware  
+    ip-blacklist:
+      ipWhiteList:
+        sourceRange:
+          - "0.0.0.0/0"
+        excludeSourceRanges:
+{% for ip in security.ip_blacklist %}
+          - "{{ ip }}"
+{% endfor %}
+{% endif %}
+
+    # HTTPS redirect middleware
+    redirect-to-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
+    # Security headers for all services
+    default-security:
+      headers:
+        browserXssFilter: true
+        contentTypeNosniff: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+
+# TLS configuration
+tls:
+  options:
+    default:
+      minVersion: "VersionTLS12"
+      cipherSuites:
+        - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+        - "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
+        - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+        - "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256"
+      sniStrict: true
