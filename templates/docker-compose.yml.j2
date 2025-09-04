@@ -1,0 +1,130 @@
+version: '3.8'
+
+networks:
+  {{ network_config.traefik_network }}:
+    external: false
+  {{ network_config.internal_network }}:
+    external: false
+
+services:
+{% if install_traefik | default(true) | bool %}
+  traefik:
+    image: {{ web_stack_config.traefik.image }}
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - --api.dashboard={{ web_stack_config.traefik.enable_dashboard | lower }}
+      - --api.insecure={{ 'true' if not traefik_enable_ssl else 'false' }}
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+{% if traefik_enable_ssl | default(false) | bool %}
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+      - --certificatesresolvers.letsencrypt.acme.email={{ vault_web_stack.ssl_email }}
+      - --certificatesresolvers.letsencrypt.acme.storage=/acme/acme.json
+{% if ssl_config.staging | default(false) | bool %}
+      - --certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
+{% endif %}
+{% endif %}
+      - --log.level={{ monitoring.log_level }}
+{% if monitoring.enable_access_logs | default(true) | bool %}
+      - --accesslog=true
+      - --accesslog.filepath=/var/log/traefik/access.log
+{% endif %}
+{% if security.rate_limiting.enabled | default(false) | bool %}
+      - --entrypoints.web.http.middlewares=ratelimit
+      - --entrypoints.websecure.http.middlewares=ratelimit
+{% endif %}
+    ports:
+      - "{{ traefik_http_port | default('80') }}:80"
+{% if traefik_enable_ssl | default(false) | bool %}
+      - "{{ traefik_https_port | default('443') }}:443"
+{% endif %}
+      - "{{ traefik_admin_port | default('8080') }}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml:ro
+{% if traefik_enable_ssl | default(false) | bool %}
+      - ./traefik/acme:/acme
+{% endif %}
+{% if monitoring.enable_access_logs | default(true) | bool %}
+      - ./traefik/logs:/var/log/traefik
+{% endif %}
+    networks:
+      - {{ network_config.traefik_network }}
+    labels:
+      - "traefik.enable=true"
+{% if header_mode == 'traefik' %}
+{% for header_name, header_value in header_configurations.traefik.custom_headers.items() %}
+      - "traefik.http.middlewares.security-headers.headers.customrequestheaders.{{ header_name }}={{ header_value }}"
+{% endfor %}
+{% elif header_mode == 'custom' %}
+{% for header_name, header_value in header_configurations.custom.custom_headers.items() %}
+      - "traefik.http.middlewares.custom-headers.headers.customrequestheaders.{{ header_name }}={{ header_value }}"
+{% endfor %}
+{% endif %}
+{% if security.rate_limiting.enabled | default(false) | bool %}
+      - "traefik.http.middlewares.ratelimit.ratelimit.burst={{ security.rate_limiting.burst }}"
+      - "traefik.http.middlewares.ratelimit.ratelimit.average={{ security.rate_limiting.requests_per_second }}"
+{% endif %}
+    environment:
+      - TZ=UTC
+{% endif %}
+
+{% if install_nginx | default(true) | bool %}
+  nginx:
+    image: {{ web_stack_config.nginx.image }}
+    container_name: nginx
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/html:/usr/share/nginx/html:ro
+{% if monitoring.enable_access_logs | default(true) | bool %}
+      - ./nginx/logs:/var/log/nginx
+{% endif %}
+    networks:
+      - {{ network_config.traefik_network }}
+      - {{ network_config.internal_network }}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nginx.rule=Host(`{{ traefik_domain | default('localhost') }}`)"
+{% if traefik_enable_ssl | default(false) | bool %}
+      - "traefik.http.routers.nginx.entrypoints=websecure"
+      - "traefik.http.routers.nginx.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.nginx-insecure.rule=Host(`{{ traefik_domain | default('localhost') }}`)"
+      - "traefik.http.routers.nginx-insecure.entrypoints=web"
+      - "traefik.http.routers.nginx-insecure.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+{% else %}
+      - "traefik.http.routers.nginx.entrypoints=web"
+{% endif %}
+      - "traefik.http.services.nginx.loadbalancer.server.port=80"
+{% if header_mode == 'nginx' %}
+      - "traefik.http.middlewares.nginx-headers.headers.customresponseheaders.Server=nginx/1.25.0"
+      - "traefik.http.middlewares.nginx-headers.headers.customresponseheaders.X-Powered-By=nginx"
+      - "traefik.http.routers.nginx.middlewares=nginx-headers"
+{% elif header_mode == 'custom' %}
+{% for header_name, header_value in header_configurations.custom.custom_headers.items() %}
+      - "traefik.http.middlewares.custom-headers.headers.customresponseheaders.{{ header_name }}={{ header_value }}"
+{% endfor %}
+      - "traefik.http.routers.nginx.middlewares=custom-headers"
+{% endif %}
+    environment:
+      - TZ=UTC
+    depends_on:
+{% if install_traefik | default(true) | bool %}
+      - traefik
+{% endif %}
+{% endif %}
+
+{% if monitoring.enable_access_logs | default(true) | bool %}
+volumes:
+  traefik-logs:
+  nginx-logs:
+{% endif %}
