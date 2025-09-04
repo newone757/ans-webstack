@@ -1,0 +1,81 @@
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+    use epoll;
+    multi_accept on;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # Logging format
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+{% if monitoring.enable_access_logs | default(true) | bool %}
+    access_log /var/log/nginx/access.log main;
+{% else %}
+    access_log off;
+{% endif %}
+
+    # Basic settings
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+    client_max_body_size 16M;
+
+    # Server tokens configuration based on header mode
+{% if header_mode == 'nginx' and header_configurations.nginx.server_tokens == 'on' %}
+    server_tokens on;
+{% else %}
+    server_tokens off;
+{% endif %}
+
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        text/javascript
+        application/json
+        application/javascript
+        application/xml+rss
+        application/atom+xml
+        image/svg+xml;
+
+    # Security headers (when not handled by Traefik)
+{% if header_mode == 'nginx' %}
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+{% elif header_mode == 'custom' %}
+    # Custom headers for stealth mode
+    add_header Server "{{ header_configurations.custom.custom_headers.Server | default('Apache/2.4.41') }}" always;
+    add_header X-Powered-By "{{ header_configurations.custom.custom_headers['X-Powered-By'] | default('PHP/8.1.0') }}" always;
+{% if header_configurations.custom.custom_headers['X-Framework'] is defined %}
+    add_header X-Framework "{{ header_configurations.custom.custom_headers['X-Framework'] }}" always;
+{% endif %}
+{% endif %}
+
+    # Rate limiting zones
+{% if security.rate_limiting.enabled | default(false) | bool %}
+    limit_req_zone $binary_remote_addr zone=api:10m rate={{ security.rate_limiting.requests_per_second }}r/s;
+    limit_req_zone $binary_remote_addr zone=general:10m rate=10r/s;
+{% endif %}
+
+    # Include additional configurations
+    include /etc/nginx/conf.d/*.conf;
+}
