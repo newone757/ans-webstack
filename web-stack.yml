@@ -1,6 +1,4 @@
 ---
-# ans-webstack.yml
-
 - name: Deploy Web Stack with Docker Compose, Traefik, and Nginx
   hosts: webservers
   become: yes
@@ -74,6 +72,34 @@
             name: "{{ vault_admin_username }}"
             groups: docker
             append: yes
+
+        - name: Ensure docker socket has correct permissions
+          file:
+            path: /var/run/docker.sock
+            group: docker
+            mode: '0660'
+
+        - name: Reset SSH connection to apply group changes
+          meta: reset_connection
+
+        - name: Verify docker group membership and access
+          block:
+            - name: Check user groups
+              command: groups {{ vault_admin_username }}
+              register: user_groups
+              changed_when: false
+
+            - name: Test docker access
+              command: docker ps
+              become_user: "{{ vault_admin_username }}"
+              register: docker_test
+              changed_when: false
+
+            - name: Display verification results
+              debug:
+                msg: 
+                  - "User groups: {{ user_groups.stdout }}"
+                  - "Docker test successful: {{ docker_test.rc == 0 }}"
       when: install_docker | default(true) | bool
 
     - name: Install Docker Compose
