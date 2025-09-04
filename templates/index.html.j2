@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Stack Deployment - {{ traefik_domain | default('localhost') }}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 3rem;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            max-width: 600px;
+            margin: 2rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(45deg, #fff, #f0f0f0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            font-size: 1.2rem;
+            margin-bottom: 2rem;
+            opacity: 0.9;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+
+        .info-card {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 1.5rem;
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .info-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .info-card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+            color: #a8e6cf;
+        }
+
+        .info-card p {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            background: #4ade80;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .links {
+            margin-top: 2rem;
+        }
+
+        .link-button {
+            display: inline-block;
+            margin: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .link-button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .footer {
+            margin-top: 2rem;
+            font-size: 0.8rem;
+            opacity: 0.7;
+        }
+
+        .header-mode {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            margin: 1rem 0;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Web Stack Online</h1>
+        <p class="subtitle">
+            <span class="status-indicator"></span>
+            Traefik + Nginx deployment successful
+        </p>
+
+        <div class="header-mode">
+            <strong>Header Mode:</strong> {{ header_mode | upper }}
+            {% if header_mode == 'custom' %}
+            - Stealth Configuration Active
+            {% elif header_mode == 'nginx' %}
+            - Nginx Headers Exposed  
+            {% else %}
+            - Traefik Security Headers
+            {% endif %}
+        </div>
+
+        <div class="info-grid">
+            <div class="info-card">
+                <h3>🔧 Services</h3>
+                <p>
+                    {% if install_traefik %}✅ Traefik Proxy<br>{% endif %}
+                    {% if install_nginx %}✅ Nginx Web Server<br>{% endif %}
+                    {% if install_docker %}✅ Docker Runtime{% endif %}
+                </p>
+            </div>
+
+            <div class="info-card">
+                <h3>🌐 Network</h3>
+                <p>
+                    Domain: {{ traefik_domain | default('localhost') }}<br>
+                    HTTP Port: {{ traefik_http_port | default('80') }}<br>
+                    {% if traefik_enable_ssl %}HTTPS: Enabled{% else %}HTTPS: Disabled{% endif %}
+                </p>
+            </div>
+
+            <div class="info-card">
+                <h3>🔒 Security</h3>
+                <p>
+                    {% if security.rate_limiting.enabled %}Rate Limiting: {{ security.rate_limiting.requests_per_second }}req/s<br>{% endif %}
+                    {% if traefik_enable_ssl %}SSL: Let's Encrypt<br>{% endif %}
+                    Firewall: UFW Active
+                </p>
+            </div>
+
+            <div class="info-card">
+                <h3>📊 Monitoring</h3>
+                <p>
+                    {% if monitoring.enable_access_logs %}Access Logs: Enabled<br>{% endif %}
+                    Log Level: {{ monitoring.log_level }}<br>
+                    {% if web_stack_config.traefik.enable_dashboard %}Dashboard: Available{% endif %}
+                </p>
+            </div>
+        </div>
+
+        <div class="links">
+            {% if web_stack_config.traefik.enable_dashboard %}
+            <a href="http://{{ traefik_domain | default('localhost') }}:{{ traefik_admin_port | default('8080') }}" class="link-button" target="_blank">
+                📊 Traefik Dashboard
+            </a>
+            {% endif %}
+            <a href="/api/" class="link-button">
+                🔌 Test API
+            </a>
+            <a href="/status" class="link-button">
+                ⚡ Server Status
+            </a>
+            <a href="/health" class="link-button">
+                💚 Health Check
+            </a>
+        </div>
+
+        <div class="footer">
+            <p>Deployed with Ansible • {{ ansible_date_time.date if ansible_date_time is defined else 'Today' }}</p>
+            <p>Server: {{ inventory_hostname }} • Stack: Docker + Traefik + Nginx</p>
+        </div>
+    </div>
+
+    <script>
+        // Simple status checker
+        async function checkStatus() {
+            try {
+                const response = await fetch('/health');
+                if (response.ok) {
+                    console.log('✅ Services are healthy');
+                }
+            } catch (error) {
+                console.log('❌ Service check failed:', error);
+            }
+        }
+
+        // Check status every 30 seconds
+        setInterval(checkStatus, 30000);
+        checkStatus();
+
+        // Add some interactivity
+        document.querySelectorAll('.info-card').forEach(card => {
+            card.addEventListener('click', function() {
+                this.style.background = 'rgba(255, 255, 255, 0.2)';
+                setTimeout(() => {
+                    this.style.background = 'rgba(255, 255, 255, 0.1)';
+                }, 200);
+            });
+        });
+    </script>
+</body>
+</html>
