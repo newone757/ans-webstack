@@ -1,0 +1,75 @@
+---
+# place in ./group_vars/all/vars.yml
+# Web Stack Configuration
+web_stack_config:
+  docker:
+    version: "latest"
+    compose_version: "v2.24.5"
+  
+  traefik:
+    image: "traefik:v3.0"
+    enable_dashboard: true
+    dashboard_port: 8080
+    enable_api: true
+    enable_ssl: false
+    ssl_email: "admin@{{ traefik_domain | default('example.com') }}"
+    
+  nginx:
+    image: "nginx:1.25-alpine"
+    port: 80
+    custom_config: true
+
+# Header Configuration Options
+header_configurations:
+  # Default Traefik headers (security-focused)
+  traefik:
+    server_tokens: "Traefik"
+    custom_headers:
+      X-Frame-Options: "DENY"
+      X-Content-Type-Options: "nosniff"
+      X-XSS-Protection: "1; mode=block"
+      Strict-Transport-Security: "max-age=31536000"
+      Referrer-Policy: "strict-origin-when-cross-origin"
+      
+  # Nginx passthrough headers (reveals Nginx)
+  nginx:
+    server_tokens: "on"
+    hide_traefik_headers: true
+    custom_headers:
+      Server: "nginx/1.25.0"
+      X-Powered-By: "nginx"
+      
+  # Custom headers (for stealth/deception)
+  custom:
+    server_tokens: "off"
+    hide_traefik_headers: true
+    custom_headers:
+      Server: "{{ custom_server_header | default('Apache/2.4.41') }}"
+      X-Powered-By: "{{ custom_powered_by | default('PHP/8.1.0') }}"
+      X-Framework: "{{ custom_framework | default('Laravel/9.0') }}"
+
+# Network Configuration
+network_config:
+  traefik_network: "web"
+  internal_network: "internal"
+  
+# SSL Configuration (when enabled)
+ssl_config:
+  provider: "letsencrypt"
+  staging: false  # Set to true for testing
+  key_type: "EC256"
+  
+# Monitoring and Logging
+monitoring:
+  enable_access_logs: true
+  log_level: "INFO"  # DEBUG, INFO, WARN, ERROR
+  
+# Security Settings
+security:
+  rate_limiting:
+    enabled: true
+    requests_per_second: 100
+    burst: 200
+  
+  ip_whitelist: []  # Add IPs to whitelist if needed
+  ip_blacklist: []  # Add IPs to blacklist if needed
