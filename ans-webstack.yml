@@ -1,0 +1,276 @@
+---
+# ans-webstack.yml
+
+- name: Deploy Web Stack with Docker Compose, Traefik, and Nginx
+  hosts: webservers
+  become: yes
+  vars_files:
+    - group_vars/all/vault.yml
+    - group_vars/all/vars.yml
+  
+  vars:
+    docker_compose_version: "v2.24.5"
+    traefik_version: "v3.0"
+    nginx_version: "1.25-alpine"
+    web_stack_dir: "/opt/web-stack"
+    
+  tasks:
+    - name: Ensure web stack directory exists
+      file:
+        path: "{{ web_stack_dir }}"
+        state: directory
+        owner: "{{ vault_admin_username }}"
+        group: "{{ vault_admin_username }}"
+        mode: '0755'
+
+    - name: Install Docker
+      block:
+        - name: Update apt cache
+          apt:
+            update_cache: yes
+            cache_valid_time: 3600
+          when: ansible_os_family == "Debian"
+
+        - name: Install required packages for Docker
+          package:
+            name:
+              - apt-transport-https
+              - ca-certificates
+              - curl
+              - gnupg
+              - lsb-release
+            state: present
+          when: ansible_os_family == "Debian"
+
+        - name: Add Docker GPG key
+          apt_key:
+            url: https://download.docker.com/linux/ubuntu/gpg
+            state: present
+          when: ansible_os_family == "Debian"
+
+        - name: Add Docker repository
+          apt_repository:
+            repo: "deb https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+            state: present
+          when: ansible_os_family == "Debian"
+
+        - name: Install Docker CE
+          package:
+            name:
+              - docker-ce
+              - docker-ce-cli
+              - containerd.io
+              - docker-buildx-plugin
+            state: present
+
+        - name: Start and enable Docker service
+          systemd:
+            name: docker
+            state: started
+            enabled: yes
+
+        - name: Add admin user to docker group
+          user:
+            name: "{{ vault_admin_username }}"
+            groups: docker
+            append: yes
+      when: install_docker | default(true) | bool
+
+    - name: Install Docker Compose
+      block:
+        - name: Download Docker Compose
+          get_url:
+            url: "https://github.com/docker/compose/releases/download/{{ docker_compose_version }}/docker-compose-linux-x86_64"
+            dest: /usr/local/bin/docker-compose
+            mode: '0755'
+            owner: root
+            group: root
+
+        - name: Create docker-compose symlink
+          file:
+            src: /usr/local/bin/docker-compose
+            dest: /usr/bin/docker-compose
+            state: link
+
+        - name: Verify Docker Compose installation
+          command: docker-compose --version
+          register: docker_compose_version_output
+          changed_when: false
+
+        - name: Display Docker Compose version
+          debug:
+            msg: "Docker Compose installed: {{ docker_compose_version_output.stdout }}"
+      when: install_docker_compose | default(true) | bool
+
+    - name: Create Traefik configuration
+      block:
+        - name: Create traefik config directory
+          file:
+            path: "{{ web_stack_dir }}/traefik"
+            state: directory
+            owner: "{{ vault_admin_username }}"
+            group: "{{ vault_admin_username }}"
+            mode: '0755'
+
+        - name: Generate Traefik static configuration
+          template:
+            src: traefik.yml.j2
+            dest: "{{ web_stack_dir }}/traefik/traefik.yml"
+            owner: "{{ vault_admin_username }}"
+            group: "{{ vault_admin_username }}"
+            mode: '0644'
+          notify: restart traefik
+
+        - name: Generate Traefik dynamic configuration
+          template:
+            src: traefik-dynamic.yml.j2
+            dest: "{{ web_stack_dir }}/traefik/dynamic.yml"
+            owner: "{{ vault_admin_username }}"
+            group: "{{ vault_admin_username }}"
+            mode: '0644'
+          notify: restart traefik
+
+        - name: Create acme directory for Let's Encrypt
+          file:
+            path: "{{ web_stack_dir }}/traefik/acme"
+            state: directory
+            owner: "{{ vault_admin_username }}"
+            group: "{{ vault_admin_username }}"
+            mode: '0700'
+          when: traefik_enable_ssl | default(false) | bool
+      when: install_traefik | default(true) | bool
+
+    - name: Create Nginx configuration
+      block:
+        - name: Create nginx config directory
+          file:
+            path: "{{ web_stack_dir }}/nginx"
+            state: directory
+            owner: "{{ vault_admin_username }}"
+            group: "{{ vault_admin_username }}"
+            mode: '0755'
+
+        - name: Create nginx html directory
+          file:
+            path: "{{ web_stack_dir }}/nginx/html"
+            state: directory
+            owner: "{{ vault_admin_username }}"
+            group: "{{ vault_admin_username }}"
+            mode: '0755'
+
+        - name: Generate Nginx configuration
+          template:
+            src: nginx.conf.j2
+            dest: "{{ web_stack_dir }}/nginx/nginx.conf"
+            owner: "{{ vault_admin_username }}"
+            group: "{{ vault_admin_username }}"
+            mode: '0644'
+          notify: restart nginx
+
+        - name: Generate custom Nginx site configuration
+          template:
+            src: default.conf.j2
+            dest: "{{ web_stack_dir }}/nginx/default.conf"
+            owner: "{{ vault_admin_username }}"
+            group: "{{ vault_admin_username }}"
+            mode: '0644'
+          notify: restart nginx
+
+        - name: Create sample HTML file
+          template:
+            src: index.html.j2
+            dest: "{{ web_stack_dir }}/nginx/html/index.html"
+            owner: "{{ vault_admin_username }}"
+            group: "{{ vault_admin_username }}"
+            mode: '0644'
+      when: install_nginx | default(true) | bool
+
+    - name: Generate Docker Compose file
+      template:
+        src: docker-compose.yml.j2
+        dest: "{{ web_stack_dir }}/docker-compose.yml"
+        owner: "{{ vault_admin_username }}"
+        group: "{{ vault_admin_username }}"
+        mode: '0644'
+
+    - name: Create systemd service for web stack
+      template:
+        src: web-stack.service.j2
+        dest: /etc/systemd/system/web-stack.service
+        mode: '0644'
+      notify:
+        - reload systemd
+        - enable web-stack service
+
+    - name: Open required firewall ports
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "{{ traefik_http_port | default('80') }}"
+        - "{{ traefik_https_port | default('443') }}"
+        - "{{ traefik_admin_port | default('8080') }}"
+      when: configure_firewall | default(true) | bool
+
+    - name: Start web stack services
+      block:
+        - name: Pull Docker images
+          command: docker-compose pull
+          args:
+            chdir: "{{ web_stack_dir }}"
+          become_user: "{{ vault_admin_username }}"
+          register: pull_result
+          changed_when: "'Pulling' in pull_result.stdout"
+
+        - name: Start web stack
+          command: docker-compose up -d
+          args:
+            chdir: "{{ web_stack_dir }}"
+          become_user: "{{ vault_admin_username }}"
+          register: compose_result
+          changed_when: "'Starting' in compose_result.stderr or 'Creating' in compose_result.stderr"
+
+        - name: Enable and start web-stack systemd service
+          systemd:
+            name: web-stack
+            enabled: yes
+            state: started
+            daemon_reload: yes
+
+        - name: Wait for services to be ready
+          wait_for:
+            port: "{{ item }}"
+            host: localhost
+            delay: 5
+            timeout: 60
+          loop:
+            - "{{ traefik_http_port | default('80') }}"
+            - "{{ traefik_admin_port | default('8080') }}"
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: enable web-stack service
+      systemd:
+        name: web-stack
+        enabled: yes
+
+    - name: restart traefik
+      command: docker-compose restart traefik
+      args:
+        chdir: "{{ web_stack_dir }}"
+      become_user: "{{ vault_admin_username }}"
+
+    - name: restart nginx
+      command: docker-compose restart nginx
+      args:
+        chdir: "{{ web_stack_dir }}"
+      become_user: "{{ vault_admin_username }}"
+
+    - name: restart web-stack
+      systemd:
+        name: web-stack
+        state: restarted
