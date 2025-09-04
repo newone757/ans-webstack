@@ -1,0 +1,49 @@
+# Encrypt this file with: ansible-vault encrypt group_vars/all/vault.yml
+
+---
+# SSH Configuration (from your existing setup)
+vault_ssh_port: 2222
+vault_admin_username: sysadmin
+vault_admin_password: "StrongP@ssw0rd!"
+
+# VPS Root Passwords (from your existing setup)
+vault_root_passwords:
+  vps1: "root_password_for_vps1"
+  vps2: "root_password_for_vps2"
+
+# Web Stack Secrets
+vault_web_stack:
+  # Traefik Dashboard Authentication
+  traefik_dashboard_user: "admin"
+  traefik_dashboard_password: "SecureTraefikP@ss!"
+  traefik_dashboard_hash: "$2y$10$example_hash_here"  # Generate with htpasswd
+  
+  # SSL Certificate Email
+  ssl_email: "admin@yourdomain.com"
+  
+  # Custom Header Values for Stealth Mode
+  custom_headers:
+    server_header: "Microsoft-IIS/10.0"
+    powered_by: "ASP.NET"
+    framework: "DotNetCore/6.0"
+    
+  # API Keys (if needed for future integrations)
+  api_keys:
+    monitoring: "your-monitoring-api-key"
+    backup: "your-backup-api-key"
+
+# Domain Configuration
+vault_domains:
+  primary: "yourdomain.com"
+  staging: "staging.yourdomain.com"
+  
+# Database Credentials (for future use)
+vault_database:
+  mysql_root_password: "MySQLRootP@ss!"
+  postgresql_password: "PostgreSQLPass!"
+
+# Backup Configuration
+vault_backup:
+  s3_access_key: "your-s3-access-key"
+  s3_secret_key: "your-s3-secret-key"
+  encryption_key: "your-backup-encryption-key"
