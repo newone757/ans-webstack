@@ -1,0 +1,83 @@
+# Traefik Static Configuration
+api:
+  dashboard: {{ web_stack_config.traefik.enable_dashboard | lower }}
+  insecure: {{ 'true' if not traefik_enable_ssl else 'false' }}
+
+entryPoints:
+  web:
+    address: ":80"
+{% if header_mode == 'custom' and header_configurations.custom.hide_traefik_headers %}
+    forwardedHeaders:
+      insecure: true
+{% endif %}
+{% if traefik_enable_ssl | default(false) | bool %}
+  websecure:
+    address: ":443"
+{% if header_mode == 'custom' and header_configurations.custom.hide_traefik_headers %}
+    forwardedHeaders:
+      insecure: true
+{% endif %}
+{% endif %}
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: {{ network_config.traefik_network }}
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+{% if traefik_enable_ssl | default(false) | bool %}
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: {{ vault_web_stack.ssl_email }}
+      storage: /acme/acme.json
+      keyType: {{ ssl_config.key_type }}
+{% if ssl_config.staging | default(false) | bool %}
+      caServer: https://acme-staging-v02.api.letsencrypt.org/directory
+{% endif %}
+      tlsChallenge: {}
+{% endif %}
+
+log:
+  level: {{ monitoring.log_level }}
+  format: json
+
+{% if monitoring.enable_access_logs | default(true) | bool %}
+accessLog:
+  filePath: /var/log/traefik/access.log
+  format: json
+  filters:
+    statusCodes:
+      - "200"
+      - "300-302"
+      - "400-499"
+      - "500-599"
+    retryAttempts: true
+    minDuration: "10ms"
+  fields:
+    headers:
+      defaultMode: keep
+      names:
+        User-Agent: redact
+        Authorization: drop
+        Content-Type: keep
+{% endif %}
+
+# Global configuration
+global:
+  sendAnonymousUsage: false
+
+# Experimental features
+experimental:
+  plugins:
+    enabled: false
+
+# Metrics (optional)
+metrics:
+  prometheus:
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+    addServicesLabels: true
