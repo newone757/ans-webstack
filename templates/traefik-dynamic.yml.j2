@@ -1,0 +1,47 @@
+# Traefik Dynamic Configuration
+http:
+  middlewares:
+{% if header_mode == 'traefik' %}
+    # Default Traefik security headers
+    security-headers:
+      headers:
+        customResponseHeaders:
+{% for header_name, header_value in header_configurations.traefik.custom_headers.items() %}
+          {{ header_name }}: "{{ header_value }}"
+{% endfor %}
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+        browserXssFilter: true
+        contentTypeNosniff: true
+        forceSTSHeader: true
+        frameDeny: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+{% endif %}
+
+{% if header_mode == 'nginx' %}
+    # Nginx passthrough headers
+    nginx-headers:
+      headers:
+        customResponseHeaders:
+{% for header_name, header_value in header_configurations.nginx.custom_headers.items() %}
+          {{ header_name }}: "{{ header_value }}"
+{% endfor %}
+{% if header_configurations.nginx.hide_traefik_headers %}
+        customRequestHeaders:
+          X-Forwarded-Proto: ""
+          X-Forwarded-For: ""
+          X-Real-Ip: ""
+{% endif %}
+{% endif %}
+
+{% if header_mode == 'custom' %}
+    # Custom stealth headers
+    custom-headers:
+      headers:
+        customResponseHeaders:
+{% for header_name, header_value in header_configurations.custom.custom_headers.items() %}
+          {{ header_name }}: "{{ header_value }}"
+{% endfor %}
+{% if header_configurations.custom.hide_tra
